@@ -1,4 +1,4 @@
-module github.com/tjgurwara99/construct
+module github.com/tjgurwara99/constr
 
 go 1.19
 
