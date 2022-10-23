@@ -18,7 +18,7 @@ type Something struct {
 Running the following command
 
 ```sh
-constr -t Data abc.go
+constr -t Something abc.go
 ```
 
 would change the abc.go file to the following
