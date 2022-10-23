@@ -1,6 +1,6 @@
 # Simple utility to generate constructors in Go for types
 
-Usage
+### Usage
 
 Given a file abc.go with the following content
 
