@@ -9,7 +9,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"log"
 	"os"
 
 	"github.com/spf13/pflag"
@@ -18,12 +17,14 @@ import (
 func main() {
 	typeName, fileName, err := parseFlags()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprint(os.Stderr, err.Error())
+		os.Exit(1)
 	}
 
 	err = realMain(fileName, typeName)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprint(os.Stderr, err.Error())
+		os.Exit(1)
 	}
 }
 
