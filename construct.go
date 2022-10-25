@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
@@ -14,23 +16,38 @@ import (
 )
 
 func main() {
-	typeName, fileName := parseFlags()
+	typeName, fileName, err := parseFlags()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	realMain(fileName, typeName)
+	err = realMain(fileName, typeName)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func realMain(fileName string, typeName string) {
-	fset, node := parseProgram(fileName)
+func realMain(fileName string, typeName string) error {
+	fset, node, err := parseProgram(fileName)
+	if err != nil {
+		return err
+	}
 
-	data := inspectNode(node, typeName)
+	data, err := inspectNode(node, typeName)
+	if err != nil {
+		return err
+	}
 	funcDecl := generateConstructor(typeName, data...)
 	insertConstructorToAst(node, typeName, funcDecl)
-	writeToFile(fset, node, fileName)
+	err = writeToFile(fset, node, fileName)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func generateConstructor(typeName string, fields ...*ast.Field) *ast.FuncDecl {
 	var elts []ast.Expr
-
 	for _, field := range fields {
 		elts = append(elts, &ast.KeyValueExpr{
 			Key:   field.Names[0],
@@ -58,46 +75,44 @@ func generateConstructor(typeName string, fields ...*ast.Field) *ast.FuncDecl {
 			},
 		},
 		Body: &ast.BlockStmt{
-			Lbrace: 1,
 			List: []ast.Stmt{
 				&ast.ReturnStmt{
 					Results: []ast.Expr{
 						&ast.UnaryExpr{
 							Op: token.AND,
 							X: &ast.CompositeLit{
-								Type:   ast.NewIdent(typeName),
-								Elts:   elts,
-								Rbrace: 1,
+								Type: ast.NewIdent(typeName),
+								Elts: elts,
 							},
 						},
 					},
 				},
 			},
-			Rbrace: 2,
 		},
 	}
 }
 
-func writeToFile(fset *token.FileSet, node *ast.File, fileName string) {
+func writeToFile(fset *token.FileSet, node *ast.File, fileName string) error {
 	tmpBuf := bytes.Buffer{}
 	err := format.Node(&tmpBuf, fset, node)
 	if err != nil {
-		log.Fatal("could not write the program into a buffer", err)
+		return fmt.Errorf("could not write the program into a buffer: %w", err)
 	}
 	file, err := os.Create(fileName)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer file.Close()
 	_, err = io.Copy(file, &tmpBuf)
 	if err != nil {
-		log.Fatal("could not write program back to file", err)
+		return fmt.Errorf("could not write program back to file: %w", err)
 	}
+	return nil
 }
 
-func inspectNode(node *ast.File, typeName string) []*ast.Field {
+func inspectNode(node *ast.File, typeName string) ([]*ast.Field, error) {
 	var data []*ast.Field
-	var constructExists bool
+	var newFuncExists bool
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.TypeSpec:
@@ -112,38 +127,39 @@ func inspectNode(node *ast.File, typeName string) []*ast.Field {
 		case *ast.FuncDecl:
 			ident := x.Name
 			if ident.Name == "New"+typeName {
-				constructExists = true
+				newFuncExists = true
 				return false
 			}
 		}
 		return true
 	})
 
-	if constructExists {
-		log.Fatal("constructor already exists")
+	if newFuncExists {
+		return nil, errors.New("constructor already exists")
 	}
-	return data
+	return data, nil
 }
 
-func parseProgram(fileName string) (*token.FileSet, *ast.File) {
+func parseProgram(fileName string) (*token.FileSet, *ast.File, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, fileName, nil, parser.ParseComments)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return fset, node
+	return fset, node, err
 }
 
-func parseFlags() (string, string) {
+func parseFlags() (string, string, error) {
 	var typeName string
 	pflag.StringVarP(&typeName, "type", "t", "", "name of the type the constructor should return")
 	pflag.Parse()
 	args := pflag.Args()
 	if len(args) > 1 || len(args) < 1 {
-		log.Fatal("provide exactly one argument which will be the filename")
+		return "", "", errors.New("no argument provided")
 	}
 	fileName := args[0]
-	return typeName, fileName
+	var err error
+	if typeName == "" {
+		err = errors.New("no type name provided")
+	}
+	return typeName, fileName, err
 }
 
 func insertConstructorToAst(node *ast.File, typeName string, funcDecl *ast.FuncDecl) {
